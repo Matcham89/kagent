@@ -2,4 +2,4 @@ apiVersion: v2
 name: cilium-crd-agent
 description: A Cilium CRD Agent for kagent
 type: application
-version: ${VERSION}
+version: 0.3.6
