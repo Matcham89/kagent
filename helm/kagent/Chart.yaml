@@ -1,0 +1,38 @@
+apiVersion: v2
+name: kagent
+description: A Helm chart for kagent, built with Autogen
+type: application
+version: 0.3.6
+dependencies:
+  - name: k8s-agent
+    version: 0.3.6
+    repository: file://../agents/k8s
+    condition: k8s-agent.enabled
+  - name: kgateway-agent
+    version: 0.3.6
+    repository: file://../agents/kgateway
+    condition: kgateway-agent.enabled
+  - name: istio-agent
+    version: 0.3.6
+    repository: file://../agents/istio
+    condition: istio-agent.enabled
+  - name: promql-agent
+    version: 0.3.6
+    repository: file://../agents/promql
+    condition: promql-agent.enabled
+  - name: observability-agent
+    version: 0.3.6
+    repository: file://../agents/observability
+    condition: observability-agent.enabled
+  - name: argo-rollouts-agent
+    version: 0.3.6
+    repository: file://../agents/argo-rollouts
+    condition: argo-rollouts-agent.enabled
+  - name: helm-agent
+    version: 0.3.6
+    repository: file://../agents/helm
+    condition: helm-agent.enabled
+  - name: cilium-crd-agent
+    version: 0.3.6
+    repository: file://../agents/cilium-crd
+    condition: cilium-crd-agent.enabled
