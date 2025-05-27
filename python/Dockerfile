@@ -34,11 +34,25 @@ RUN --mount=type=cache,target=/app/python/.cache,rw  \
 ### STAGE 3: tools
 FROM python-os AS python-builder
 ARG TARGETARCH
+
+ARG TOOLS_BUN_VERSION
+ENV BUN_INSTALL_CACHE_DIR=/cache/bun
+ENV BUN_INSTALL=/usr/local/bun
+ENV PATH=$BUN_INSTALL/bin:$PATH
 ARG TOOLS_ISTIO_VERSION
 ARG TOOLS_ARGO_CD_VERSION
 
 RUN mkdir -p /app/downloads /usr/local/bin/
 WORKDIR /app/downloads
+
+
+# Install Bun (uses official install script)
+# brew install oven-sh/bun/bun
+RUN --mount=type=cache,target=/cache/bun,rw \
+    mkdir -p $BUN_INSTALL  \
+    && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
+    && bun --version
+
 
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$TARGETARCH/kubectl" \
     && chmod +x kubectl \
@@ -60,6 +74,8 @@ RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/s
 ### STAGE 4: final
 FROM python-os AS final
 
+RUN apk update && apk add nodejs npm
+
 COPY --from=python-builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 COPY --from=python-builder /usr/local/bin/istioctl /usr/local/bin/istioctl
 COPY --from=python-builder /usr/local/bin/helm /usr/local/bin/helm
@@ -79,7 +95,7 @@ RUN --mount=type=cache,target=/app/python/.cache                  \
 # Generate configs
 RUN --mount=type=cache,target=/app/python/.cache                  \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    mkdir -p /app/python/.autogenstudio/configs && uv run tool_gen -o /app/python/.autogenstudio/configs
+    mkdir -p /root/.autogenstudio/configs && uv run tool_gen -o /root/.autogenstudio/configs
 
 # Test if the tool is working and fetch all dependencies
 RUN --mount=type=cache,target=/app/python/.cache                  \

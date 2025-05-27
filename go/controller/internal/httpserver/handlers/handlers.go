@@ -13,13 +13,13 @@ type Handlers struct {
 	ModelConfig *ModelConfigHandler
 	Model       *ModelHandler
 	Provider    *ProviderHandler
-	Runs        *RunsHandler
 	Sessions    *SessionsHandler
 	Teams       *TeamsHandler
 	Tools       *ToolsHandler
 	ToolServers *ToolServersHandler
 	Invoke      *InvokeHandler
 	Memory      *MemoryHandler
+	Feedback    *FeedbackHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -42,12 +42,12 @@ func NewHandlers(kubeClient client.Client, autogenClient *autogen_client.Client,
 		ModelConfig: NewModelConfigHandler(base),
 		Model:       NewModelHandler(base),
 		Provider:    NewProviderHandler(base),
-		Runs:        NewRunsHandler(base),
 		Sessions:    NewSessionsHandler(base),
 		Teams:       NewTeamsHandler(base),
 		Tools:       NewToolsHandler(base),
 		ToolServers: NewToolServersHandler(base),
 		Invoke:      NewInvokeHandler(base),
 		Memory:      NewMemoryHandler(base),
+		Feedback:    NewFeedbackHandler(base),
 	}
 }

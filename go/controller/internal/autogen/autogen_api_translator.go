@@ -12,28 +12,12 @@ import (
 	"github.com/kagent-dev/kagent/go/autogen/api"
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	common "github.com/kagent-dev/kagent/go/controller/internal/utils"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-const (
-	GlobalUserID = "admin@kagent.dev"
-
-	// suffix applied to all system prompts:
-	defaultSystemMessageSuffix = `
-# Instructions
-    - If user question is unclear, ask for clarification before running any tools
-    - Always be helpful and friendly
-    - If you don't know how to answer the question DO NOT make things up, tell the user "Sorry, I don't know how to answer that" and ask them to clarify the question further
-    - Do not delete the original Deployment until the user explicitly confirms that the Rollout is ready to take over production traffic.
-
-
-# Response format:
-    - ALWAYS format your response as Markdown
-    - Your response will include a summary of actions you took and an explanation of the result
-    - If you created any artifacts such as files or resources, you will include those in your response as well`
 )
 
 var (
@@ -69,13 +53,13 @@ type apiTranslator struct {
 
 func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1alpha1.ToolServer) (*autogen_client.ToolServer, error) {
 	// provder = "kagent.tool_servers.StdioMcpToolServer" || "kagent.tool_servers.SseMcpToolServer"
-	provider, toolServerConfig, err := translateToolServerConfig(toolServer.Spec.Config)
+	provider, toolServerConfig, err := a.translateToolServerConfig(ctx, toolServer.Spec.Config, toolServer.Namespace)
 	if err != nil {
 		return nil, err
 	}
 
 	return &autogen_client.ToolServer{
-		UserID: GlobalUserID,
+		UserID: common.GetGlobalUserID(),
 		Component: api.Component{
 			Provider:      provider,
 			ComponentType: "tool_server",
@@ -87,14 +71,104 @@ func (a *apiTranslator) TranslateToolServer(ctx context.Context, toolServer *v1a
 	}, nil
 }
 
-func translateToolServerConfig(config v1alpha1.ToolServerConfig) (string, *api.ToolServerConfig, error) {
+// resolveValueSource resolves a value from a ValueSource
+func (a *apiTranslator) resolveValueSource(ctx context.Context, source *v1alpha1.ValueSource, namespace string) (string, error) {
+	if source == nil {
+		return "", fmt.Errorf("source cannot be nil")
+	}
+
+	switch source.Type {
+	case v1alpha1.ConfigMapValueSource:
+		return a.getConfigMapValue(ctx, source, namespace)
+	case v1alpha1.SecretValueSource:
+		return a.getSecretValue(ctx, source, namespace)
+	default:
+		return "", fmt.Errorf("unknown value source type: %s", source.Type)
+	}
+}
+
+// getConfigMapValue fetches a value from a ConfigMap
+func (a *apiTranslator) getConfigMapValue(ctx context.Context, source *v1alpha1.ValueSource, namespace string) (string, error) {
+	if source == nil {
+		return "", fmt.Errorf("source cannot be nil")
+	}
+
+	configMap := &corev1.ConfigMap{}
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		configMap,
+		source.ValueRef,
+		namespace,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to find ConfigMap for %s: %v", source.ValueRef, err)
+	}
+
+	value, exists := configMap.Data[source.Key]
+	if !exists {
+		return "", fmt.Errorf("key %s not found in ConfigMap %s/%s", source.Key, configMap.Namespace, configMap.Name)
+	}
+	return value, nil
+}
+
+// getSecretValue fetches a value from a Secret
+func (a *apiTranslator) getSecretValue(ctx context.Context, source *v1alpha1.ValueSource, namespace string) (string, error) {
+	if source == nil {
+		return "", fmt.Errorf("source cannot be nil")
+	}
+
+	secret := &corev1.Secret{}
+	err := fetchObjKube(
+		ctx,
+		a.kube,
+		secret,
+		source.ValueRef,
+		namespace,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to find Secret for %s: %v", source.ValueRef, err)
+	}
+
+	value, exists := secret.Data[source.Key]
+	if !exists {
+		return "", fmt.Errorf("key %s not found in Secret %s/%s", source.Key, secret.Namespace, secret.Name)
+	}
+	return string(value), nil
+}
+
+func (a *apiTranslator) translateToolServerConfig(ctx context.Context, config v1alpha1.ToolServerConfig, namespace string) (string, *api.ToolServerConfig, error) {
 	switch {
 	case config.Stdio != nil:
+		env := make(map[string]string)
+
+		if config.Stdio.Env != nil {
+			for k, v := range config.Stdio.Env {
+				env[k] = v
+			}
+		}
+
+		if len(config.Stdio.EnvFrom) > 0 {
+			for _, envVar := range config.Stdio.EnvFrom {
+				if envVar.ValueFrom != nil {
+					value, err := a.resolveValueSource(ctx, envVar.ValueFrom, namespace)
+
+					if err != nil {
+						return "", nil, fmt.Errorf("failed to resolve environment variable %s: %v", envVar.Name, err)
+					}
+
+					env[envVar.Name] = value
+				} else if envVar.Value != "" {
+					env[envVar.Name] = envVar.Value
+				}
+			}
+		}
+
 		return "kagent.tool_servers.StdioMcpToolServer", &api.ToolServerConfig{
 			StdioMcpServerConfig: &api.StdioMcpServerConfig{
 				Command: config.Stdio.Command,
 				Args:    config.Stdio.Args,
-				Env:     config.Stdio.Env,
+				Env:     env,
 			},
 		}, nil
 	case config.Sse != nil:
@@ -102,6 +176,23 @@ func translateToolServerConfig(config v1alpha1.ToolServerConfig) (string, *api.T
 		if err != nil {
 			return "", nil, err
 		}
+
+		if len(config.Sse.HeadersFrom) > 0 {
+			for _, header := range config.Sse.HeadersFrom {
+				if header.ValueFrom != nil {
+					value, err := a.resolveValueSource(ctx, header.ValueFrom, namespace)
+
+					if err != nil {
+						return "", nil, fmt.Errorf("failed to resolve header %s: %v", header.Name, err)
+					}
+
+					headers[header.Name] = value
+				} else if header.Value != "" {
+					headers[header.Name] = header.Value
+				}
+			}
+		}
+
 		timeout, err := convertDurationToSeconds(config.Sse.Timeout)
 		if err != nil {
 			return "", nil, err
@@ -146,7 +237,13 @@ func NewAutogenApiTranslator(
 }
 
 func (a *apiTranslator) TranslateGroupChatForAgent(ctx context.Context, agent *v1alpha1.Agent) (*autogen_client.Team, error) {
-	return a.translateGroupChatForAgent(ctx, agent, defaultTeamOptions(), &tState{})
+	stream := true
+	if agent.Spec.Stream != nil {
+		stream = *agent.Spec.Stream
+	}
+	opts := defaultTeamOptions()
+	opts.stream = stream
+	return a.translateGroupChatForAgent(ctx, agent, opts, &tState{})
 }
 
 func (a *apiTranslator) TranslateGroupChatForTeam(
@@ -157,9 +254,7 @@ func (a *apiTranslator) TranslateGroupChatForTeam(
 }
 
 type teamOptions struct {
-	userProxy         bool
-	wrapSocietyOfMind bool
-	stream            bool
+	stream bool
 }
 
 const MAX_DEPTH = 10
@@ -185,9 +280,7 @@ func (t *tState) isVisited(agentName string) bool {
 
 func defaultTeamOptions() *teamOptions {
 	return &teamOptions{
-		userProxy:         true,
-		wrapSocietyOfMind: true,
-		stream:            true,
+		stream: true,
 	}
 }
 
@@ -197,37 +290,12 @@ func (a *apiTranslator) translateGroupChatForAgent(
 	opts *teamOptions,
 	state *tState,
 ) (*autogen_client.Team, error) {
-	modelConfig := a.defaultModelConfig
-	// Use the provided model config if set, otherwise use the default one
-	if agent.Spec.ModelConfig != "" {
-		modelConfig = types.NamespacedName{
-			Name:      agent.Spec.ModelConfig,
-			Namespace: agent.Namespace,
-		}
-	}
-	if err := a.kube.Get(ctx, modelConfig, &v1alpha1.ModelConfig{}); err != nil {
+
+	simpleTeam, err := a.simpleRoundRobinTeam(ctx, agent, agent.Name)
+	if err != nil {
 		return nil, err
 	}
-
-	// generate an internal round robin "team" for the individual agent
-	team := &v1alpha1.Team{
-		ObjectMeta: agent.ObjectMeta,
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Team",
-			APIVersion: "kagent.dev/v1alpha1",
-		},
-		Spec: v1alpha1.TeamSpec{
-			Participants:         []string{agent.Name},
-			Description:          agent.Spec.Description,
-			ModelConfig:          modelConfig.Name,
-			RoundRobinTeamConfig: &v1alpha1.RoundRobinTeamConfig{},
-			TerminationCondition: v1alpha1.TerminationCondition{
-				StopMessageTermination: &v1alpha1.StopMessageTermination{},
-			},
-		},
-	}
-
-	return a.translateGroupChatForTeam(ctx, team, opts, state)
+	return a.translateGroupChatForTeam(ctx, simpleTeam, opts, state)
 }
 
 func (a *apiTranslator) translateGroupChatForTeam(
@@ -295,39 +363,21 @@ func (a *apiTranslator) translateGroupChatForTeam(
 			return nil, err
 		}
 
-		if opts.wrapSocietyOfMind {
-			participant, err := a.translateTaskAgent(
-				ctx,
-				agent,
-				modelContext,
-				state,
-			)
-			if err != nil {
-				return nil, err
-			}
-			participants = append(participants, participant)
-		} else {
-			participant, err := a.translateAssistantAgent(
-				ctx,
-				agent,
-				modelConfig,
-				modelClientWithStreaming,
-				modelClientWithoutStreaming,
-				modelContext,
-				opts,
-				state,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			participants = append(participants, participant)
+		participant, err := a.translateAssistantAgent(
+			ctx,
+			agent,
+			modelConfig,
+			modelClientWithStreaming,
+			modelClientWithoutStreaming,
+			modelContext,
+			opts,
+			state,
+		)
+		if err != nil {
+			return nil, err
 		}
-	}
 
-	//  add user proxy agent to top level
-	if opts.userProxy {
-		participants = append(participants, userProxyAgent)
+		participants = append(participants, participant)
 	}
 
 	if swarmTeamConfig != nil {
@@ -406,44 +456,24 @@ func (a *apiTranslator) translateGroupChatForTeam(
 	return &autogen_client.Team{
 		Component: teamConfig,
 		BaseObject: autogen_client.BaseObject{
-			UserID: GlobalUserID, // always use global id
+			UserID: common.GetGlobalUserID(), // always use global id
 		},
 	}, nil
 }
 
-// internally we convert all agents to a society-of-mind agent
-func (a *apiTranslator) translateTaskAgent(
-	ctx context.Context,
-	agent *v1alpha1.Agent,
-	modelContext *api.Component,
-	state *tState,
-) (*api.Component, error) {
+func (a *apiTranslator) simpleRoundRobinTeam(ctx context.Context, agent *v1alpha1.Agent, name string) (*v1alpha1.Team, error) {
 
-	name := agent.Name + "-society-of-mind-wrapper"
-	team := simpleRoundRobinTeam(agent, name)
-
-	societyOfMindTeam, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{
-		stream: true,
-	}, state)
-	if err != nil {
+	modelConfig := a.defaultModelConfig
+	// Use the provided model config if set, otherwise use the default one
+	if agent.Spec.ModelConfig != "" {
+		modelConfig = types.NamespacedName{
+			Name:      agent.Spec.ModelConfig,
+			Namespace: agent.Namespace,
+		}
+	}
+	if err := a.kube.Get(ctx, modelConfig, &v1alpha1.ModelConfig{}); err != nil {
 		return nil, err
 	}
-
-	return &api.Component{
-		Provider:      "kagent.agents.TaskAgent",
-		ComponentType: "agent",
-		Version:       1,
-		Label:         "society_of_mind_agent",
-		Description:   "An agent that runs a team of agents",
-		Config: api.MustToConfig(&api.TaskAgentConfig{
-			Team:         societyOfMindTeam.Component,
-			Name:         "society_of_mind_agent",
-			ModelContext: modelContext,
-		}),
-	}, nil
-}
-
-func simpleRoundRobinTeam(agent *v1alpha1.Agent, name string) *v1alpha1.Team {
 	// generate an internal round robin "team" for the society of mind agent
 	meta := agent.ObjectMeta.DeepCopy()
 	// This is important so we don't output this message in the CLI/UI
@@ -466,7 +496,7 @@ func simpleRoundRobinTeam(agent *v1alpha1.Agent, name string) *v1alpha1.Team {
 			},
 		},
 	}
-	return team
+	return team, nil
 }
 
 func (a *apiTranslator) translateAssistantAgent(
@@ -535,10 +565,11 @@ func (a *apiTranslator) translateAssistantAgent(
 				return nil, err
 			}
 
-			team := simpleRoundRobinTeam(&toolAgent, toolAgent.Name)
-			autogenTool, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{
-				wrapSocietyOfMind: true,
-			}, state.with(agent))
+			team, err := a.simpleRoundRobinTeam(ctx, &toolAgent, toolAgent.Name)
+			if err != nil {
+				return nil, err
+			}
+			autogenTool, err := a.translateGroupChatForTeam(ctx, team, &teamOptions{}, state.with(agent))
 			if err != nil {
 				return nil, err
 			}
@@ -561,10 +592,7 @@ func (a *apiTranslator) translateAssistantAgent(
 		}
 	}
 
-	sysMsg := agent.Spec.SystemMessage + "\n" + defaultSystemMessageSuffix
-	if agent.Spec.SystemMessage == "" {
-		sysMsg = ""
-	}
+	sysMsg := agent.Spec.SystemMessage
 
 	cfg := &api.AssistantAgentConfig{
 		Name:         convertToPythonIdentifier(agent.Name),
@@ -660,7 +688,7 @@ func (a *apiTranslator) translateBuiltinTool(
 		}
 	}
 	if toolNeedsOpenaiApiKey(tool.Name) {
-		if modelConfig.Spec.Provider != v1alpha1.OpenAI {
+		if (modelConfig.Spec.Provider != v1alpha1.OpenAI) && modelConfig.Spec.Provider != v1alpha1.AzureOpenAI {
 			return nil, fmt.Errorf("tool %s requires OpenAI API key, but model config is not OpenAI", tool.Name)
 		}
 		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
@@ -904,7 +932,8 @@ func addOpenaiApiKeyToConfig(
 }
 
 // createModelClientForProvider creates a model client component based on the model provider
-func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelConfig *v1alpha1.ModelConfig, includeUsage bool) (*api.Component, error) {
+func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelConfig *v1alpha1.ModelConfig, stream bool) (*api.Component, error) {
+
 	switch modelConfig.Spec.Provider {
 	case v1alpha1.Anthropic:
 		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
@@ -951,7 +980,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert Anthropic config: %w", err)
 		}
-
+		config.DefaultHeaders = modelConfig.Spec.DefaultHeaders
 		return &api.Component{
 			Provider:      "autogen_ext.models.anthropic.AnthropicChatCompletionClient",
 			ComponentType: "model",
@@ -970,10 +999,9 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 				APIKey:    string(apiKey),
 				ModelInfo: translateModelInfo(modelConfig.Spec.ModelInfo),
 			},
-			Stream: true,
 		}
 
-		if includeUsage {
+		if stream {
 			config.StreamOptions = &api.StreamOptions{
 				IncludeUsage: true,
 			}
@@ -1002,7 +1030,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 				}
 			}
 		}
-
+		config.DefaultHeaders = modelConfig.Spec.DefaultHeaders
 		return &api.Component{
 			Provider:      "autogen_ext.models.openai.AzureOpenAIChatCompletionClient",
 			ComponentType: "model",
@@ -1023,7 +1051,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			},
 		}
 
-		if includeUsage {
+		if stream {
 			config.StreamOptions = &api.StreamOptions{
 				IncludeUsage: true,
 			}
@@ -1074,6 +1102,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			}
 		}
 
+		config.DefaultHeaders = modelConfig.Spec.DefaultHeaders
 		return &api.Component{
 			Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
 			ComponentType: "model",
@@ -1099,6 +1128,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			}
 		}
 
+		config.Headers = modelConfig.Spec.DefaultHeaders
 		return &api.Component{
 			Provider:      "autogen_ext.models.ollama.OllamaChatCompletionClient",
 			ComponentType: "model",
