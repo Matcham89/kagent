@@ -12,6 +12,7 @@ providers:
     model: "gpt-4.1-mini"
     apiKeySecretKey: OPENAI_API_KEY
     apiKeySecretRef: kagent-openai
+    apiKey: "NULL"
 
 controller:
   loglevel: "info"
