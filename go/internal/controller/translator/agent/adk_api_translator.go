@@ -562,6 +562,23 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}
 	}
 
+	// Translate gateways into remote agent tools
+	if agent.Spec.Declarative.A2AConfig != nil {
+		for _, gateway := range agent.Spec.Declarative.A2AConfig.Gateways {
+			headers, err := gateway.ResolveHeaders(ctx, a.kube, agent.Namespace)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to resolve headers for gateway %s: %w", gateway.ID, err)
+			}
+
+			cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
+				Name:        gateway.GetToolName(),
+				Url:         gateway.GetGatewayURL(),
+				Headers:     headers,
+				Description: gateway.Description,
+			})
+		}
+	}
+
 	return cfg, mdd, secretHashBytes, nil
 }
 

@@ -5583,6 +5583,87 @@ spec:
                       <kagent-controller-ip>:8083/api/a2a/<agent-namespace>/<agent-name>
                       Read more about the A2A protocol here: https://github.com/google/A2A
                     properties:
+                      gateways:
+                        description: |-
+                          Gateways defines remote agent connections via AgentGateway
+                          Each gateway appears as a tool that routes A2A requests to agents in remote clusters
+                        items:
+                          description: AgentGateway defines a gateway connection to
+                            a remote cluster agent
+                          properties:
+                            address:
+                              description: Address is the base URL of the AgentGateway
+                                (e.g., https://192.168.1.200:8080)
+                              minLength: 1
+                              type: string
+                            agentName:
+                              description: AgentName is the name of the target agent
+                                on the remote cluster
+                              minLength: 1
+                              type: string
+                            description:
+                              description: Description provides context about this
+                                gateway for the LLM
+                              type: string
+                            headersFrom:
+                              description: |-
+                                HeadersFrom specifies headers for authentication
+                                Can reference Secrets or ConfigMaps for tokens, API keys, etc.
+                              items:
+                                description: ValueRef represents a configuration value
+                                properties:
+                                  name:
+                                    type: string
+                                  value:
+                                    type: string
+                                  valueFrom:
+                                    description: ValueSource defines a source for
+                                      configuration values from a Secret or ConfigMap
+                                    properties:
+                                      key:
+                                        description: The key of the ConfigMap or Secret.
+                                        type: string
+                                      name:
+                                        description: The name of the ConfigMap or
+                                          Secret.
+                                        type: string
+                                      type:
+                                        enum:
+                                        - ConfigMap
+                                        - Secret
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    - type
+                                    type: object
+                                required:
+                                - name
+                                type: object
+                                x-kubernetes-validations:
+                                - message: Exactly one of value or valueFrom must
+                                    be specified
+                                  rule: (has(self.value) && !has(self.valueFrom))
+                                    || (!has(self.value) && has(self.valueFrom))
+                              type: array
+                            id:
+                              description: |-
+                                ID is the unique identifier for this gateway
+                                The gateway will be exposed as a tool named "{id}_gateway"
+                              minLength: 1
+                              type: string
+                            namespace:
+                              description: Namespace is the namespace where the target
+                                agent lives on the remote cluster
+                              minLength: 1
+                              type: string
+                          required:
+                          - address
+                          - agentName
+                          - id
+                          - namespace
+                          type: object
+                        type: array
                       skills:
                         items:
                           description: AgentSkill describes a specific capability

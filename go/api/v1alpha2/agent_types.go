@@ -19,6 +19,7 @@ package v1alpha2
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -236,9 +237,101 @@ func (t *TypedLocalReference) GroupKind() schema.GroupKind {
 type A2AConfig struct {
 	// +kubebuilder:validation:MinItems=1
 	Skills []AgentSkill `json:"skills,omitempty"`
+
+	// Gateways defines remote agent connections via AgentGateway
+	// Each gateway appears as a tool that routes A2A requests to agents in remote clusters
+	// +optional
+	Gateways []AgentGateway `json:"gateways,omitempty"`
 }
 
 type AgentSkill server.AgentSkill
+
+// AgentGateway defines a gateway connection to a remote cluster agent
+type AgentGateway struct {
+	// ID is the unique identifier for this gateway
+	// The gateway will be exposed as a tool named "{id}_gateway"
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ID string `json:"id"`
+
+	// Address is the base URL of the AgentGateway (e.g., https://192.168.1.200:8080)
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Address string `json:"address"`
+
+	// Namespace is the namespace where the target agent lives on the remote cluster
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Namespace string `json:"namespace"`
+
+	// AgentName is the name of the target agent on the remote cluster
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	AgentName string `json:"agentName"`
+
+	// Description provides context about this gateway for the LLM
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// HeadersFrom specifies headers for authentication
+	// Can reference Secrets or ConfigMaps for tokens, API keys, etc.
+	// +optional
+	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
+}
+
+// ResolveHeaders resolves header values from secrets and configmaps
+func (g *AgentGateway) ResolveHeaders(ctx context.Context, client client.Client, namespace string) (map[string]string, error) {
+	result := map[string]string{}
+
+	for _, h := range g.HeadersFrom {
+		k, v, err := h.Resolve(ctx, client, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve header: %v", err)
+		}
+
+		result[k] = v
+	}
+
+	return result, nil
+}
+
+// // GetGatewayURL constructs the full A2A endpoint URL for this gateway
+// func (g *AgentGateway) GetGatewayURL() string {
+// 	address := g.Address
+// 	// Ensure no trailing slash
+// 	if len(address) > 0 && address[len(address)-1] == '/' {
+// 		address = address[:len(address)-1]
+// 	}
+
+// 	return fmt.Sprintf("%s/api/a2a/%s/%s", address, g.Namespace, g.AgentName)
+// }
+
+
+// GetGatewayURL constructs the full A2A endpoint URL for this gateway
+func (g *AgentGateway) GetGatewayURL() string {
+    // 1. Sanitize Address: Remove all trailing slashes
+    // e.g. "http://192.168.1.1/" -> "http://192.168.1.1"
+    address := strings.TrimRight(g.Address, "/")
+
+    // 2. Sanitize Namespace: Remove leading AND trailing slashes
+    // e.g. "/kagent/" -> "kagent"
+    namespace := strings.Trim(g.Namespace, "/")
+
+    // 3. Sanitize AgentName: Remove leading AND trailing slashes
+    // e.g. "k8s-agent/" -> "k8s-agent"
+    agentName := strings.Trim(g.AgentName, "/")
+
+    // 4. Construct the clean URL
+    return fmt.Sprintf("%s/api/a2a/%s/%s", address, namespace, agentName)
+}
+
+// GetToolName returns the tool name for this gateway (id + "_gateway")
+// Converts hyphens to underscores to ensure valid Python identifier
+func (g *AgentGateway) GetToolName() string {
+	// Replace hyphens with underscores for valid Python identifier
+	safeID := strings.ReplaceAll(g.ID, "-", "_")
+	return fmt.Sprintf("%s_gateway", safeID)
+}
 
 const (
 	AgentConditionTypeAccepted = "Accepted"

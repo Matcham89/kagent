@@ -1,0 +1,168 @@
+# Example: Multi-Cluster Kubernetes Agent with AgentGateway Support
+#
+# This example demonstrates how to configure an orchestrator agent that can
+# manage multiple Kubernetes clusters via AgentGateway connections.
+#
+# Architecture:
+#   Local Cluster (orchestrator) → AgentGateway → Remote Cluster (k8s-agent)
+#
+# The orchestrator agent has access to three remote clusters (dev, test, prod)
+# via gateway tools. When the LLM receives a request like "compare pods in dev vs test",
+# it can invoke the dev_gateway and test_gateway tools to communicate with the
+# respective cluster agents.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dev-cluster-token
+  namespace: kagent
+type: Opaque
+stringData:
+  # Example: Bearer token for dev cluster gateway authentication
+  token: "Bearer dev-cluster-secret-token-here"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: test-cluster-token
+  namespace: kagent
+type: Opaque
+stringData:
+  # Example: Bearer token for test cluster gateway authentication
+  token: "Bearer test-cluster-secret-token-here"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prod-cluster-token
+  namespace: kagent
+type: Opaque
+stringData:
+  # Example: Bearer token for prod cluster gateway authentication
+  token: "Bearer prod-cluster-secret-token-here"
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: k8s-orchestrator
+  namespace: kagent
+spec:
+  description: |
+    A multi-cluster Kubernetes orchestrator that can manage and compare
+    resources across development, test, and production clusters via AgentGateway.
+
+  type: Declarative
+  declarative:
+    systemMessage: |
+      You are a multi-cluster Kubernetes orchestrator with access to multiple
+      Kubernetes clusters via gateway connections.
+
+      **Available Clusters:**
+      - dev-cluster (via dev_gateway tool): Development environment
+      - test-cluster (via test_gateway tool): Testing environment
+      - prod-cluster (via prod_gateway tool): Production environment
+
+      **How to Use Gateways:**
+
+      Each gateway tool connects to a k8s-agent running on the respective cluster.
+      Those agents have kubectl and helm tools available to manage their cluster.
+
+      When users ask about specific clusters, use the appropriate gateway tool:
+      - "list pods in dev" → invoke dev_gateway with message "list all pods"
+      - "get deployments in production" → invoke prod_gateway with "get deployments"
+      - "compare pods in dev vs test" → invoke both dev_gateway and test_gateway
+
+      **Examples:**
+
+      1. Single cluster query:
+         User: "How many pods are running in the dev cluster?"
+         Action: Invoke dev_gateway tool with "Count all running pods"
+
+      2. Multi-cluster comparison:
+         User: "Compare the number of deployments in dev vs test"
+         Action:
+           - Invoke dev_gateway with "Count deployments"
+           - Invoke test_gateway with "Count deployments"
+           - Compare the results
+
+      3. Cross-cluster operations:
+         User: "Is the api-gateway service healthy in all environments?"
+         Action:
+           - Invoke dev_gateway with "Check api-gateway service status"
+           - Invoke test_gateway with "Check api-gateway service status"
+           - Invoke prod_gateway with "Check api-gateway service status"
+           - Summarize health across all clusters
+
+      Always be clear about which cluster you're querying and provide
+      comparative analysis when asked.
+
+    modelConfig: default-model-config
+
+    a2aConfig:
+      skills:
+        - id: multi-cluster-management
+          name: Multi-Cluster Kubernetes Management
+          description: |
+            Manage and monitor Kubernetes resources across multiple clusters.
+            Can query individual clusters or compare resources across environments.
+          tags:
+            - kubernetes
+            - multi-cluster
+            - orchestration
+            - monitoring
+          examples:
+            - "List all pods in the dev cluster"
+            - "Compare the number of deployments in dev vs test"
+            - "Get the status of the api-gateway service in production"
+            - "Which cluster has the most pods running?"
+            - "Are there any failed pods in any environment?"
+
+      # Gateway configuration - each gateway becomes a tool
+      gateways:
+        - id: dev-cluster
+          address: https://192.168.1.200:8080
+          namespace: kagent
+          agentName: k8s-agent
+          description: |
+            Gateway to the development cluster k8s agent.
+            Use this to query or manage resources in the dev environment.
+          headersFrom:
+            - name: Authorization
+              secretRef:
+                name: dev-cluster-token
+                key: token
+
+        - id: test-cluster
+          address: https://192.168.1.201:8080
+          namespace: kagent
+          agentName: k8s-agent
+          description: |
+            Gateway to the test cluster k8s agent.
+            Use this to query or manage resources in the test environment.
+          headersFrom:
+            - name: Authorization
+              secretRef:
+                name: test-cluster-token
+                key: token
+
+        - id: prod-cluster
+          address: https://192.168.1.202:8080
+          namespace: kagent
+          agentName: k8s-agent
+          description: |
+            Gateway to the production cluster k8s agent.
+            Use this to query or manage resources in the production environment.
+          headersFrom:
+            - name: Authorization
+              secretRef:
+                name: prod-cluster-token
+                key: token
+
+    deployment:
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
