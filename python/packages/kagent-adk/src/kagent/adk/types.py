@@ -123,7 +123,7 @@ class AgentConfig(BaseModel):
 
                 remote_a2a_agent = RemoteA2aAgent(
                     name=remote_agent.name,
-                    agent_card=f"{remote_agent.url}/{AGENT_CARD_WELL_KNOWN_PATH}",
+                    agent_card=f"{remote_agent.url}/{AGENT_CARD_WELL_KNOWN_PATH.lstrip('/')}",
                     description=remote_agent.description,
                     httpx_client=client,
                 )
