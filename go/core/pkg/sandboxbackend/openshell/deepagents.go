@@ -133,12 +133,14 @@ func (b *DeepAgentsBackend) OnAgentHarnessReady(ctx context.Context, ah *v1alpha
 	gwCtx, cancelGW := context.WithTimeout(ctx, 150*time.Second+15*time.Second)
 	defer cancelGW()
 	// Source the bootstrapped .env (model, base_url, key), set HOME so dcode/langgraph resolve
-	// ~/.deepagents, then start the baked langgraph gateway app bound to localhost. Flags and
-	// LANGGRAPH_AUTH_TYPE=noop mirror how dcode itself launches `langgraph dev` (see
-	// deepagents_code/server.py:_build_server_cmd / _build_server_env).
+	// ~/.deepagents, then start the baked langgraph gateway app bound to localhost. The CWD must be
+	// writable because `langgraph dev` creates a .langgraph_api state dir there, so run from the
+	// config dir (RW) while pointing --config at the read-only baked app (its langgraph.json uses an
+	// absolute graph path so it resolves regardless of CWD). Flags and LANGGRAPH_AUTH_TYPE=noop
+	// mirror how dcode itself launches `langgraph dev` (deepagents_code/server.py).
 	gatewayStart := fmt.Sprintf(
-		`cd %s && set -a && . %s/.env && set +a && HOME=%s LANGGRAPH_AUTH_TYPE=noop nohup langgraph dev --host 127.0.0.1 --port %d --no-browser --no-reload --config %s/langgraph.json >>/tmp/gateway.log 2>&1 &`,
-		deepagents.DeepAgentsGatewayWorkdir,
+		`cd %s && set -a && . %s/.env && set +a && HOME=%s LANGGRAPH_AUTH_TYPE=noop PYTHONDONTWRITEBYTECODE=1 nohup langgraph dev --host 127.0.0.1 --port %d --no-browser --no-reload --config %s/langgraph.json >>/tmp/gateway.log 2>&1 &`,
+		deepagents.DeepAgentsConfigDir,
 		deepagents.DeepAgentsConfigDir,
 		deepagents.DeepAgentsHome,
 		deepagents.DeepAgentsInternalGatewayPort,

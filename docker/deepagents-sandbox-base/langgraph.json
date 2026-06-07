@@ -1,6 +1,6 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "agent": "./server_graph.py:graph"
+    "agent": "/opt/deepagents/server_graph.py:graph"
   }
 }
