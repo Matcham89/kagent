@@ -5,6 +5,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/deepagents"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/hermes"
 )
 
@@ -25,6 +26,8 @@ func ResolveSSHRemoteCommand(plainShell bool, launchOverride, harnessBackend str
 		switch {
 		case hermes.IsHermesSandboxBackend(backend):
 			return false, hermes.DefaultSSHLaunchCommand()
+		case deepagents.IsDeepAgentsSandboxBackend(backend):
+			return false, deepagents.DefaultSSHLaunchCommand()
 		case openclaw.IsClawSandboxBackend(backend):
 			return false, openclaw.DefaultSSHLaunchCommand()
 		}

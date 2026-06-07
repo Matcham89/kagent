@@ -1,0 +1,13 @@
+[project]
+name = "kagent-deepagents-gateway"
+version = "0.1.0"
+description = "Baked langgraph gateway app for the kagent Deep Agents (dcode) OpenShell harness"
+requires-python = ">=3.11"
+dependencies = [
+    "deepagents",
+    "langchain-openai",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

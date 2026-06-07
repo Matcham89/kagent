@@ -7,6 +7,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/deepagents"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/hermes"
 	"google.golang.org/protobuf/proto"
 )
@@ -100,6 +101,9 @@ func allowedDomainsNetworkPolicyRuleForHarness(ah *v1alpha2.AgentHarness, domain
 	if ah != nil && hermes.IsHermesSandboxBackend(ah.Spec.Backend) {
 		rule.Binaries = hermes.AllowedDomainsBinaries()
 	}
+	if ah != nil && deepagents.IsDeepAgentsSandboxBackend(ah.Spec.Backend) {
+		rule.Binaries = deepagents.AllowedDomainsBinaries()
+	}
 	return rule
 }
 
@@ -166,6 +170,8 @@ func openShellSandboxPolicyForAgentHarness(ah *v1alpha2.AgentHarness) *sandboxv1
 		pol = mergeOpenShellSandboxPolicies(openclaw.BaselineSandboxPolicy(), openclaw.ChannelNetworkPolicyFragment(ah))
 	case hermes.IsHermesSandboxBackend(ah.Spec.Backend):
 		pol = mergeOpenShellSandboxPolicies(hermes.BaselineHermesSandboxPolicy(), hermes.ChannelNetworkPolicyFragment(ah))
+	case deepagents.IsDeepAgentsSandboxBackend(ah.Spec.Backend):
+		pol = deepagents.BaselineDeepAgentsSandboxPolicy()
 	default:
 		pol = openclaw.ChannelNetworkPolicyFragment(ah)
 	}

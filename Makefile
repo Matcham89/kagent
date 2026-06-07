@@ -56,6 +56,7 @@ APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
 SKILLS_INIT_IMAGE_NAME ?= skills-init
+DEEPAGENTS_SANDBOX_BASE_IMAGE_NAME ?= deepagents-sandbox-base
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
@@ -64,6 +65,7 @@ KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_FULL_IMAGE_TAG ?= $(VERSION)-full
 SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
+DEEPAGENTS_SANDBOX_BASE_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
@@ -71,6 +73,10 @@ KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(K
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 GOLANG_ADK_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_FULL_IMAGE_TAG)
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
+# Deep Agents sandbox base is published to a private Docker Hub repo for local dev.
+# Override DEEPAGENTS_SANDBOX_BASE_REPO / _TAG (or the whole _IMG) as needed.
+DEEPAGENTS_SANDBOX_BASE_REPO ?= matcham89
+DEEPAGENTS_SANDBOX_BASE_IMG ?= docker.io/$(DEEPAGENTS_SANDBOX_BASE_REPO)/$(DEEPAGENTS_SANDBOX_BASE_IMAGE_NAME):latest
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -281,6 +287,12 @@ build-skills-init: ## Build and push the skills-init image
 build-skills-init: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile ./go
 	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
+
+.PHONY: build-deepagents-sandbox-base
+build-deepagents-sandbox-base: ## Build and push the Deep Agents (dcode) OpenShell sandbox base image
+build-deepagents-sandbox-base: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(DEEPAGENTS_SANDBOX_BASE_IMG) -f docker/deepagents-sandbox-base/Dockerfile docker/deepagents-sandbox-base
+	$(DOCKER_PUSH) $(DEEPAGENTS_SANDBOX_BASE_IMG)
 
 .PHONY: push
 push: ## Push all component images (controller, ui, app, ADKs)

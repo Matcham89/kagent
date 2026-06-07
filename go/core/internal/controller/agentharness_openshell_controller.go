@@ -31,10 +31,11 @@ import (
 // OpenShellAgentHarnessController reconciles AgentHarness resources that use the
 // OpenShell runtime.
 type OpenShellAgentHarnessController struct {
-	Client          client.Client
-	Recorder        events.EventRecorder
-	OpenClawBackend sandboxbackend.AsyncBackend
-	HermesBackend   sandboxbackend.AsyncBackend
+	Client            client.Client
+	Recorder          events.EventRecorder
+	OpenClawBackend   sandboxbackend.AsyncBackend
+	HermesBackend     sandboxbackend.AsyncBackend
+	DeepAgentsBackend sandboxbackend.AsyncBackend
 }
 
 func (r *OpenShellAgentHarnessController) backendFor(ah *v1alpha2.AgentHarness) sandboxbackend.AsyncBackend {
@@ -43,6 +44,8 @@ func (r *OpenShellAgentHarnessController) backendFor(ah *v1alpha2.AgentHarness) 
 		return r.OpenClawBackend
 	case v1alpha2.AgentHarnessBackendHermes:
 		return r.HermesBackend
+	case v1alpha2.AgentHarnessBackendDeepAgents:
+		return r.DeepAgentsBackend
 	default:
 		return nil
 	}

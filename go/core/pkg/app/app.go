@@ -609,9 +609,10 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	kubeClient := mgr.GetClient()
 	var openshellOpenClawBackend sandboxbackend.AsyncBackend
 	var openshellHermesBackend sandboxbackend.AsyncBackend
+	var openshellDeepAgentsBackend sandboxbackend.AsyncBackend
 	if cfg.Openshell.GatewayURL != "" {
 		var err error
-		openshellOpenClawBackend, openshellHermesBackend, err = buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
+		openshellOpenClawBackend, openshellHermesBackend, openshellDeepAgentsBackend, err = buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
 		if err != nil {
 			setupLog.Error(err, "unable to build openshell sandbox backends")
 			os.Exit(1)
@@ -628,12 +629,13 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 			os.Exit(1)
 		}
 	}
-	if openshellOpenClawBackend != nil || openshellHermesBackend != nil {
+	if openshellOpenClawBackend != nil || openshellHermesBackend != nil || openshellDeepAgentsBackend != nil {
 		if err := (&controller.OpenShellAgentHarnessController{
-			Client:          kubeClient,
-			Recorder:        mgr.GetEventRecorder("agentharness-openshell-controller"),
-			OpenClawBackend: openshellOpenClawBackend,
-			HermesBackend:   openshellHermesBackend,
+			Client:            kubeClient,
+			Recorder:          mgr.GetEventRecorder("agentharness-openshell-controller"),
+			OpenClawBackend:   openshellOpenClawBackend,
+			HermesBackend:     openshellHermesBackend,
+			DeepAgentsBackend: openshellDeepAgentsBackend,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "OpenShellAgentHarness")
 			os.Exit(1)
@@ -651,7 +653,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 			os.Exit(1)
 		}
 	}
-	if openshellOpenClawBackend == nil && openshellHermesBackend == nil && substrateOpenClawBackend == nil && substrateNemoClawBackend == nil {
+	if openshellOpenClawBackend == nil && openshellHermesBackend == nil && openshellDeepAgentsBackend == nil && substrateOpenClawBackend == nil && substrateNemoClawBackend == nil {
 		setupLog.Info("AgentHarness controller disabled: set --openshell-gateway-url and/or --substrate-ate-api-endpoint")
 	}
 
@@ -802,7 +804,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 // nemoclaw from flag config. It dials the gateway once; OpenShell and Inference RPCs
 // share that connection (see openshell.OpenShellClients). The connection is not explicitly
 // closed today — same lifetime as the process.
-func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, error) {
+func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, error) {
 	oc := openshell.Config{
 		GatewayURL:  cfg.Openshell.GatewayURL,
 		Token:       cfg.Openshell.Token,
@@ -813,25 +815,26 @@ func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient 
 	if cfg.Openshell.TokenFile != "" {
 		data, err := os.ReadFile(cfg.Openshell.TokenFile)
 		if err != nil {
-			return nil, nil, fmt.Errorf("read openshell token file: %w", err)
+			return nil, nil, nil, fmt.Errorf("read openshell token file: %w", err)
 		}
 		oc.Token = strings.TrimSpace(string(data))
 	}
 	if cfg.Openshell.CAFile != "" {
 		data, err := os.ReadFile(cfg.Openshell.CAFile)
 		if err != nil {
-			return nil, nil, fmt.Errorf("read openshell CA file: %w", err)
+			return nil, nil, nil, fmt.Errorf("read openshell CA file: %w", err)
 		}
 		oc.TLSCAPEM = data
 	}
 	clients, err := openshell.Dial(ctx, oc)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	ocl := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
 	hermesBackend := openshell.NewHermesBackend(kubeClient, clients, oc, nil)
-	return ocl, hermesBackend, nil
+	deepAgentsBackend := openshell.NewDeepAgentsBackend(kubeClient, clients, oc, nil)
+	return ocl, hermesBackend, deepAgentsBackend, nil
 }
 
 func buildSubstrateSandboxBackends(ctx context.Context, cfg *Config) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, *substrate.Client, error) {

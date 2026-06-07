@@ -18,19 +18,20 @@ import (
 
 // AgentHarnessBackendType selects which sandbox control plane provisions the
 // environment. Additional backends may be added in the future.
-// +kubebuilder:validation:Enum=openclaw;nemoclaw;hermes
+// +kubebuilder:validation:Enum=openclaw;nemoclaw;hermes;deepagents
 type AgentHarnessBackendType string
 
 const (
-	AgentHarnessBackendOpenClaw AgentHarnessBackendType = "openclaw"
-	AgentHarnessBackendNemoClaw AgentHarnessBackendType = "nemoclaw"
-	AgentHarnessBackendHermes   AgentHarnessBackendType = "hermes"
+	AgentHarnessBackendOpenClaw   AgentHarnessBackendType = "openclaw"
+	AgentHarnessBackendNemoClaw   AgentHarnessBackendType = "nemoclaw"
+	AgentHarnessBackendHermes     AgentHarnessBackendType = "hermes"
+	AgentHarnessBackendDeepAgents AgentHarnessBackendType = "deepagents"
 )
 
 // IsKnownAgentHarnessBackend reports backends the OpenShell harness controller and API expose.
 func IsKnownAgentHarnessBackend(b AgentHarnessBackendType) bool {
 	switch b {
-	case AgentHarnessBackendOpenClaw, AgentHarnessBackendNemoClaw, AgentHarnessBackendHermes:
+	case AgentHarnessBackendOpenClaw, AgentHarnessBackendNemoClaw, AgentHarnessBackendHermes, AgentHarnessBackendDeepAgents:
 		return true
 	default:
 		return false
@@ -228,7 +229,8 @@ type AgentHarnessSpec struct {
 	// Image is the container image to run in the harness VM, if the backend
 	// supports per-resource images. Backends openclaw and nemoclaw pin the image
 	// to the NemoClaw sandbox base when this field is empty; backend hermes pins
-	// to the Hermes sandbox base image when empty.
+	// to the Hermes sandbox base image when empty; backend deepagents pins to the
+	// Deep Agents sandbox base image when empty.
 	// +optional
 	Image string `json:"image,omitempty"`
 

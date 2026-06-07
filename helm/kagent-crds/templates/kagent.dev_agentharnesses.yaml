@@ -73,6 +73,7 @@ spec:
                 - openclaw
                 - nemoclaw
                 - hermes
+                - deepagents
                 type: string
               channels:
                 description: Channels configures Telegram and Slack integrations for
@@ -494,7 +495,8 @@ spec:
                   Image is the container image to run in the harness VM, if the backend
                   supports per-resource images. Backends openclaw and nemoclaw pin the image
                   to the NemoClaw sandbox base when this field is empty; backend hermes pins
-                  to the Hermes sandbox base image when empty.
+                  to the Hermes sandbox base image when empty; backend deepagents pins to the
+                  Deep Agents sandbox base image when empty.
                 type: string
               modelConfigRef:
                 description: |-
@@ -612,6 +614,7 @@ spec:
                     - openclaw
                     - nemoclaw
                     - hermes
+                    - deepagents
                     type: string
                   id:
                     type: string
