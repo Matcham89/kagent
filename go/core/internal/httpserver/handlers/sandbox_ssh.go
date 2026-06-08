@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
@@ -61,6 +62,27 @@ type wsCtrlMsg struct {
 	Message string `json:"message,omitempty"`
 }
 
+// resolveHarnessBackend returns the AgentHarness backend (e.g. "hermes", "deepagents") for the
+// OpenShell sandbox with the given gateway name, by matching status.backendRef.id. Returns "" when
+// no client is configured, the lookup fails, or no harness matches — callers fall back to the
+// client-supplied value.
+func (h *Handlers) resolveHarnessBackend(ctx context.Context, sandboxName string) string {
+	if h.KubeClient == nil || strings.TrimSpace(sandboxName) == "" {
+		return ""
+	}
+	var list v1alpha2.AgentHarnessList
+	if err := h.KubeClient.List(ctx, &list); err != nil {
+		return ""
+	}
+	for i := range list.Items {
+		ref := list.Items[i].Status.BackendRef
+		if ref != nil && ref.ID == sandboxName {
+			return string(list.Items[i].Spec.Backend)
+		}
+	}
+	return ""
+}
+
 // HandleSandboxSSHWebSocket upgrades to WebSocket, accepts one JSON start frame, mints an SSH
 // session via OpenShell gRPC from inside the cluster, opens a ForwardTcp relay and SSH shell,
 // then proxies terminal I/O (same wire protocol as scripts/openshell-ssh-ws.mjs).
@@ -91,14 +113,22 @@ func (h *Handlers) HandleSandboxSSHWebSocket(w ErrorResponseWriter, r *http.Requ
 	}
 	grpcAddr := resolveOpenshellGRPCAddr(start)
 
-	log.Info("openshell gRPC target", "addr", grpcAddr)
+	// The interactive launch command depends on the harness backend. Resolve it authoritatively
+	// from the AgentHarness CR rather than trusting the client start frame, since older UIs may
+	// not send (or may not know) newer backends like deepagents.
+	harnessBackend := start.HarnessBackend
+	if resolved := h.resolveHarnessBackend(r.Context(), start.SandboxName); resolved != "" {
+		harnessBackend = resolved
+	}
+
+	log.Info("openshell gRPC target", "addr", grpcAddr, "harnessBackend", harnessBackend)
 
 	handshakeCtx, handshakeCancel := context.WithTimeout(r.Context(), sandboxSSHHandshakeTimeout)
 	defer handshakeCancel()
 
 	// ForwardTcp must outlive the handshake; do not tie the relay stream to handshakeCtx.
 	grpcConn, sshClient, session, stdin, stdout, stderr, err := h.dialOpenshellShellSession(
-		handshakeCtx, r.Context(), grpcAddr, start.SandboxName, start.Rows, start.Cols, start.PlainShell, start.LaunchCommand, start.HarnessBackend)
+		handshakeCtx, r.Context(), grpcAddr, start.SandboxName, start.Rows, start.Cols, start.PlainShell, start.LaunchCommand, harnessBackend)
 	if err != nil {
 		log.Info("openshell ssh session failed", "error", err)
 		closeWSWithError(wsConn, err.Error())

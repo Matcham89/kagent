@@ -86,6 +86,8 @@ func defaultDeepAgentsFilesystemPolicy() *sandboxv1.FilesystemPolicy {
 			"/app",
 			"/etc",
 			"/var/log",
+			// Login shell reads ~/.profile / ~/.bashrc for the sandbox user (home /home/sandbox).
+			"/home",
 		},
 		ReadWrite: []string{
 			"/sandbox",
